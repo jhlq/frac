@@ -1,20 +1,32 @@
 useGPU=false
+viewEnabled=true
 if useGPU==true
 	import OpenCL
 	const cl = OpenCL
+	cld=1 #check cl.devices() and specify which device to use
+end
+if viewEnabled==true
+	using PyPlot
+	cm="prism"
+	get_cmap(cm)
 end
 
-const maxiter=255
+const maxiter=3000#255
+const prunedmap=9000
 const dim=1000
 const maplim=1.8126796e6
 #map=readdlm("map.csv",',')
-records=readdlm("records.csv",',')
+if ispath("records.csv")
+	records=readdlm("records.csv",',')
+else 
+	addrecord(-1,-1,1,1.7378675e6)
+end
+if !ispath("map.csv")
+	addtomap(-1,-1,0.5,1.767248e6)
+end
 #record=records[end,4]
-#toplocs=Array(Array{Float64,1},0)#[-1,-1,1]
-#push!(toplocs,[-1.0,-1.0,1,1.7378675e6]) #x,y,zoom,inequality
-
 function mandel(z)
-	c = z #complex64(-0.5, 0.75)
+	c = z 
 	for n = 1:maxiter
 		if abs2(z) > 4.0
 			return n-1
@@ -23,17 +35,9 @@ function mandel(z)
 	end
 	return maxiter
 end
-#w=1
-#h=1
-#z=1
-#x=-1
-#y=-1
-#q = [complex64(r,i) for i=linspace(x,x+1/z,w), r=linspace(y,y+1/z,h)];
-#y:-(2.0/z/w):-y
-#-1.5:(3.0/h):1.5
 function ordinary_mandel(q)
 	(h, w) = size(q)
-	m  = Array(Uint8, (h, w));
+	m  = Array(Uint16, (h, w));
 	for i in 1:w
 		for j in 1:h
 			@inbounds v = q[j, i]
@@ -43,8 +47,8 @@ function ordinary_mandel(q)
 	return m
 end
 function mandel_cpu(x::Float64,y::Float64,z::Float64,w::Int64=dim,h::Int64=dim)
-	q = [complex64(r,i) for i=linspace(y,y+1/z,h), r=linspace(x,x+1/z,w)];
-	m  = Array(Uint8, (h, w));
+	q = [complex(r,i) for i=linspace(y,y+1/z,h), r=linspace(x,x+1/z,w)];
+	m  = Array(Uint16, (h, w));
 	for i in 1:w
 		for j in 1:h
 			@inbounds v = q[j, i]
@@ -53,12 +57,18 @@ function mandel_cpu(x::Float64,y::Float64,z::Float64,w::Int64=dim,h::Int64=dim)
 	end
 	return m
 end
+function getq(x::Float64,y::Float64,z::Float64,w::Int64=dim,h::Int64=dim)
+       	q = [complex(r,i) for i=linspace(y,y+1/z,h), r=linspace(x,x+1/z,w)]
+end
 mandel_cpu(x::Real,y::Real,z::Real)=mandel_cpu(float(x),float(y),float(z))
 mandel_cpu(a::Array)=mandel_cpu(a[1],a[2],a[3])
-function inequality(m::Array{Uint8,2})
+function inequality(m::Array)
 	itspace=zeros(Int64,maxiter+1)
-	for pix in m
-		itspace[int(pix)+1]+=1
+	d,w=size(m)
+	for p1 in 1:d
+		for p2 in 1:w
+			itspace[int(m[p1,p2])+1]+=1
+		end
 	end
 	ism=mean(itspace)
 	sco=0
@@ -89,7 +99,7 @@ if useGPU==true
 	}";
 
 	function mandel_opencl(q::Array{Complex64}, maxiter::Int64)
-		ctx   = cl.Context(cl.devices()[4])
+		ctx   = cl.Context(cl.devices()[cld])
 		queue = cl.CmdQueue(ctx)
 
 		out = Array(Uint16, size(q))
@@ -110,9 +120,25 @@ if useGPU==true
 		m = mandel_opencl(q,maxiter)		
 		return m
 	end
+	mandel_gpu(x::Real,y::Real,z::Real)=mandel_gpu(float(x),float(y),float(z))
+	mandel_gpu(a::Array)=mandel_gpu(a[1],a[2],a[3])
+end
+if viewEnabled==true
+	function view(x::Real,y::Real,z::Real)
+		if useGPU==true
+			m=mandel_gpu(x,y,z)
+		else
+			m=mandel_cpu(x,y,z)
+		end
+		imshow(m,cmap=cm)
+	end
+	view(a::Array)=view(a[1],a[2],a[3])
 end
 function dig(n::Int64)
 	map=readdlm("map.csv",',')
+	if size(map,1)>1.5*prunedmap
+		prunemap(prunedmap)
+	end
 	records=readdlm("records.csv",',')
 	record=records[end,4]
 	m=0
@@ -130,19 +156,16 @@ function dig(n::Int64)
 		ns=inequality(m)
 		if ns<maplim
 			addtomap(nx,ny,nz,ns)
+			println("New map entry: $nx $ny $nz $ns")
 			map=cat(1,map,[nx ny nz ns])
 		end
 		if ns<record
 			addrecord(nx,ny,nz,ns)
-#			push!(toplocs,[nx,ny,nz,ns])
 			println("New record! $ns at: $nx $ny $nz")
 			records=cat(1,records,[nx ny nz ns])
-			#return m
 			record=ns
 		end
-		print("$ns, ")
 	end
-	#return m
 end
 function dig(a::Array{Bool,1}=[true],batchsize::Int64=1000)
 	while a[1]==true
@@ -159,3 +182,19 @@ function addrecord(x,y,z,inq)
 	write(fh,"$x,$y,$z,$inq\n")
 	close(fh)
 end
+function prunemap(keep::Integer)
+	map=readdlm("map.csv",',')
+	order=sortperm(map[:,4])
+	fh=open("map.csv","w")
+	write(fh,"")
+	close(fh)
+	nme=length(order)
+	kk=keep<nme?keep:nme
+	fh=open("map.csv","a")
+	for k in 1:kk
+		write(fh,"$(map[order[k],1]),$(map[order[k],2]),$(map[order[k],3]),$(map[order[k],4])\n")
+	end
+	close(fh)
+end
+		
+	
