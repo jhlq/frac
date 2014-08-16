@@ -11,19 +11,32 @@ if viewEnabled==true
 	get_cmap(cm)
 end
 
-const maxiter=3000#255
-const prunedmap=9000
+const maxiter=3000-1 #if this number is changed the map and records become invalid.
+const prunedmap=9000 #when the map is sorted it is also pruned to this many entries.
 const dim=1000
-const maplim=1.8126796e6
-#map=readdlm("map.csv",',')
+const maplim=1.95e6 
+function addtomap(x,y,z,inq)
+	fh=open("map.csv","a")
+	write(fh,"$x,$y,$z,$inq\n")
+	close(fh)
+end
+function addrecord(x,y,z,inq)
+	fh=open("records.csv","a")
+	write(fh,"$x,$y,$z,$inq\n")
+	close(fh)
+end
 if ispath("records.csv")
 	records=readdlm("records.csv",',')
 else 
-	addrecord(-1,-1,1,1.7378675e6)
+	addrecord(0,0,1,1.9467973333332038e6)
 end
 if !ispath("map.csv")
-	addtomap(-1,-1,0.5,1.767248e6)
+	addtomap(-2,-1,1,1.956610666666484e6)
+	addtomap(-2,0,1,1.956610666666484e6)
+	addtomap(0,0,1,1.9467973333332038e6)
+	addtomap(0,-1,1,1.9467973333332038e6)
 end
+maptree=readdlm("map.csv",',')
 #record=records[end,4]
 function mandel(z)
 	c = z 
@@ -76,6 +89,25 @@ function inequality(m::Array)
 		sco+=abs(it-ism)
 	end
 	return sco
+end
+function inequality_t(m::Array)
+	step=(maxiter+1)/100
+	itspace=zeros(Int64,100)
+	d,w=size(m)
+	#nm=zeros(d,w)
+	for p1 in 1:d
+		for p2 in 1:w
+			ind=floor(int(m[p1,p2])/step+1)
+			itspace[ind]+=1
+		#	nm[p1,p2]=ind
+		end
+	end
+	ism=mean(itspace)
+	sco=0
+	for it in itspace
+		sco+=abs(it-ism)
+	end
+	return sco#,nm
 end
 if useGPU==true
 	mandel_source = "
@@ -131,6 +163,7 @@ if viewEnabled==true
 			m=mandel_cpu(x,y,z)
 		end
 		imshow(m,cmap=cm)
+		println(inequality(m))
 	end
 	view(a::Array)=view(a[1],a[2],a[3])
 end
@@ -165,22 +198,13 @@ function dig(n::Int64)
 			records=cat(1,records,[nx ny nz ns])
 			record=ns
 		end
+		println(ns)
 	end
 end
 function dig(a::Array{Bool,1}=[true],batchsize::Int64=1000)
 	while a[1]==true
 		dig(batchsize)
 	end
-end
-function addtomap(x,y,z,inq)
-	fh=open("map.csv","a")
-	write(fh,"$x,$y,$z,$inq\n")
-	close(fh)
-end
-function addrecord(x,y,z,inq)
-	fh=open("records.csv","a")
-	write(fh,"$x,$y,$z,$inq\n")
-	close(fh)
 end
 function prunemap(keep::Integer)
 	map=readdlm("map.csv",',')
@@ -189,7 +213,13 @@ function prunemap(keep::Integer)
 	write(fh,"")
 	close(fh)
 	nme=length(order)
-	kk=keep<nme?keep:nme
+	#kk=(keep<nme)?keep:nme
+	kk=0
+	if keep<nme
+		kk=keep
+	else
+		kk=nme
+	end	
 	fh=open("map.csv","a")
 	for k in 1:kk
 		write(fh,"$(map[order[k],1]),$(map[order[k],2]),$(map[order[k],3]),$(map[order[k],4])\n")
