@@ -12,9 +12,9 @@
 #require("frac.jl")
 #dig() 
 
-useGPU=false #currently limited to single precision 
-viewEnabled=true
-verbose=false
+const useGPU=false #currently limited to single precision 
+const viewEnabled=true
+const verbose=false
 if useGPU==true
 	import OpenCL
 	const cl = OpenCL
