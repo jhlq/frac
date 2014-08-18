@@ -1,5 +1,19 @@
-useGPU=false
+#to do 10 iterations:
+#julia -L frac
+#dig(10)
+
+#to display fractals:
+#view(x,y,zoom)
+#view(records[end,:]) 
+
+#to run indefinitely with two threads:
+#julia -p 2
+#require("frac.jl")
+#dig() 
+
+useGPU=false #currently limited to single precision 
 viewEnabled=true
+verbose=false
 if useGPU==true
 	import OpenCL
 	const cl = OpenCL
@@ -175,6 +189,7 @@ function dig(n::Int64)
 	records=readdlm("records.csv",',')
 	record=records[end,4]
 	m=0
+	ns=0
 	for it in 1:n
 		loci=rand(1:size(map,1))
 		(x,y,z,s)=(map[loci,1],map[loci,2],map[loci,3],map[loci,4])
@@ -187,23 +202,45 @@ function dig(n::Int64)
 			m=mandel_cpu(nx,ny,nz)
 		end
 		ns=inequality(m)
+		prant=false
 		if ns<maplim
 			addtomap(nx,ny,nz,ns)
 			println("New map entry: $nx $ny $nz $ns")
+			prant=true
 			map=cat(1,map,[nx ny nz ns])
 		end
 		if ns<record
 			addrecord(nx,ny,nz,ns)
-			println("New record! $ns at: $nx $ny $nz")
+			println("New record!")
 			records=cat(1,records,[nx ny nz ns])
 			record=ns
 		end
-		println(ns)
+		if verbose==true && prant==false
+			println(ns)
+		elseif prant==false
+			print(".")
+		end
 	end
+	#return 1
 end
 function dig(a::Array{Bool,1}=[true],batchsize::Int64=1000)
+	#by passing a named array @async dig can be terminated gracefully
+	np=nprocs()
+	if np>1
+		@everywhere include("frac.jl")
+	end
 	while a[1]==true
-		dig(batchsize)
+		if np>1
+			refs=Array(RemoteRef,np)
+			for p in 1:np
+				refs[p]=@spawn dig(batchsize)
+			end
+			for p in 1:np
+				wait(refs[p])
+			end
+		else 
+			dig(batchsize)
+		end
 	end
 end
 function prunemap(keep::Integer)
