@@ -5,6 +5,7 @@
 #to display fractals:
 #view(x,y,zoom)
 #view(records[end,:]) 
+#view(maptree[3,:]) 
 
 #to run indefinitely with two threads:
 #julia -p 2
